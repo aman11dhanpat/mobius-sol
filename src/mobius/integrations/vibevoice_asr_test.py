@@ -15,6 +15,72 @@ from mobius.integrations.vibevoice_asr import (
 )
 
 
+def test_processor_iter_chunks_preserves_uneven_recording():
+    processor = VibeVoiceASRProcessor()
+    processor.chunk_samples = 4
+    batch = processor.prepare_audio(
+        np.arange(10, dtype=np.float32),
+        sampling_rate=24_000,
+        normalize=False,
+    )
+
+    chunks = list(processor.iter_chunks(batch))
+
+    assert [chunk.input_values.shape for chunk in chunks] == [(1, 1, 4), (1, 1, 4), (1, 1, 2)]
+    for chunk, expected in zip(chunks, ([0, 1, 2, 3], [4, 5, 6, 7], [8, 9]), strict=True):
+        np.testing.assert_array_equal(
+            chunk.input_values, np.array([[expected]], dtype=np.float32), strict=True
+        )
+        np.testing.assert_array_equal(
+            chunk.padding_mask, np.ones((1, len(expected)), dtype=np.bool_), strict=True
+        )
+
+
+def test_processor_iter_chunks_preserves_variable_length_batch():
+    processor = VibeVoiceASRProcessor()
+    processor.chunk_samples = 4
+    batch = processor.prepare_audio(
+        [
+            -np.arange(1, 6, dtype=np.float32),
+            np.arange(1, 11, dtype=np.float32),
+        ],
+        sampling_rate=24_000,
+        normalize=False,
+    )
+
+    chunks = list(processor.iter_chunks(batch))
+
+    assert [chunk.input_values.shape for chunk in chunks] == [(2, 1, 4), (2, 1, 4), (2, 1, 2)]
+    expected_values = [
+        [[[-1, -2, -3, -4]], [[1, 2, 3, 4]]],
+        [[[-5, 0, 0, 0]], [[5, 6, 7, 8]]],
+        [[[0, 0]], [[9, 10]]],
+    ]
+    expected_masks = [
+        [[True, True, True, True], [True, True, True, True]],
+        [[True, False, False, False], [True, True, True, True]],
+        [[False, False], [True, True]],
+    ]
+    for chunk, values, mask in zip(chunks, expected_values, expected_masks, strict=True):
+        np.testing.assert_array_equal(
+            chunk.input_values, np.array(values, dtype=np.float32), strict=True
+        )
+        np.testing.assert_array_equal(
+            chunk.padding_mask, np.array(mask, dtype=np.bool_), strict=True
+        )
+
+
+@pytest.mark.parametrize("batch_size", [0, 1])
+def test_processor_iter_chunks_yields_nothing_without_audio(batch_size):
+    processor = VibeVoiceASRProcessor()
+    batch = VibeVoiceASRBatch(
+        input_values=np.empty((batch_size, 0), dtype=np.float32),
+        padding_mask=np.empty((batch_size, 0), dtype=np.bool_),
+    )
+
+    assert list(processor.iter_chunks(batch)) == []
+
+
 def test_processor_normalizes_pads_chunks_prompts_and_parses_diarization():
     processor = VibeVoiceASRProcessor()
     short = np.array([1.0, -1.0], dtype=np.float32)

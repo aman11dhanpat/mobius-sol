@@ -89,7 +89,12 @@ class VibeVoiceASRProcessor:
 
     def iter_chunks(self, batch: VibeVoiceASRBatch) -> Iterator[VibeVoiceASRBatch]:
         """Yield raw 60-second windows; encoder cache bridges adjacent windows."""
-        raise NotImplementedError
+        for start in range(0, batch.input_values.shape[-1], self.chunk_samples):
+            end = start + self.chunk_samples
+            yield VibeVoiceASRBatch(
+                input_values=batch.input_values[:, None, start:end],
+                padding_mask=batch.padding_mask[:, start:end],
+            )
 
     @staticmethod
     def make_prompt(
